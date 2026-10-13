@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#fff7f4" />
+  <title>LetterUs ♡</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="shell">
+
+    <div id="notice" role="status" aria-live="polite"></div>
+    <section id="home" class="card">
+     
+      <h1>Hi, love!</h1>
+      <p>Ready for a little word-game date?</p>
+      <label for="name">Your name</label>
+      <input id="name" maxlength="24" placeholder="What should I call you?" autocomplete="nickname" />
+      <button id="create" class="primary">Create our room ♡</button>
+      <div class="separator">or join your person</div>
+      <label for="code">Room code</label>
+      <input id="code" maxlength="6" placeholder="ABC123" autocapitalize="characters" />
+      <button id="join" class="secondary">Join room</button>
+    </section>
+    <section id="game" hidden>
+      <div class="card topbar">
+        <div><span class="eyebrow">OUR ROOM</span><strong id="room-code">------</strong></div>
+        <button id="copy" class="small secondary">Copy invite link</button>
+      </div>
+      <div class="scores" id="scores"></div>
+      <div id="waiting" class="card" hidden>
+        
+        <h2>Waiting for your person...</h2>
+        <p>Share your room link so she can join you here.</p>
+      </div>
+      <div id="choosing" class="card" hidden>
+        <span class="eyebrow" id="round-label">ROUND 1</span>
+        <h2>Pick a mystery letter</h2>
+        <p id="choose-instruction">Tap a hidden tile to reveal your letter.</p>
+        <div class="alphabet" id="alphabet"></div>
+      </div>
+      <div id="playing" class="card" hidden>
+        <span class="eyebrow" id="play-round">ROUND 1</span>
+        <div class="letter"> <span id="letter">A</span> </div>
+        <div class="timer" id="timer">01:30</div>
+        <p class="helper" id="play-status">Think fast, love!</p>
+        <form id="answers-form">
+          <div id="fields" class="fields"></div>
+          <button type="submit" class="primary" id="submit">Submit my answers ♡</button>
+        </form>
+        <button id="stop" class="secondary">STOP! 10-second countdown</button>
+      </div>
+      <div id="results" class="card" hidden>
+    
+        <h2>Round complete!</h2>
+        <p>10 points for a unique answer, 5 for a matching one.</p>
+        <div id="result-rows" class="result-rows"></div>
+        <button id="next" class="primary">Next round ♡</button>
+        <p class="helper" id="next-help"></p>
+      </div>
+    </section>
+
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/script.js"></script>
+</body>
+</html>
