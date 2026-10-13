@@ -88,11 +88,52 @@ function renderPlaying() {
 }
 function renderResults() {
   const [a, b] = state.players;
-  $('result-rows').innerHTML = (state.results || []).map(row => `<div class="result-row"><strong>${escapeHtml(row.category)}</strong><span>${escapeHtml(a.name)}: ${escapeHtml(row.answers[a.id] || '—')} <b>+${row.points[a.id]}</b></span><span>${escapeHtml(b.name)}: ${escapeHtml(row.answers[b.id] || '—')} <b>+${row.points[b.id]}</b></span></div>`).join('');
+  const other = state.players.find(p => p.id !== me);
+  const unresolved = (state.results || []).some(row => Object.values(row.challenges || {}).some(c => ['pending','disputed'].includes(c.status)));
+  const ready = Boolean(state.reviewReady?.[me]);
+  const allReady = state.players.every(p => state.reviewReady?.[p.id]);
+  $('review-status').textContent = state.finalized
+    ? 'Scores finalized! Ready for another round ♡'
+    : unresolved ? 'A challenge needs resolving before you can confirm.'
+    : ready ? 'Your review is confirmed. Waiting for your person ♡'
+    : 'Check each answer and flag anything that does not belong.';
+  $('result-rows').innerHTML = (state.results || []).map(row => {
+    const answers = [a,b].map(player => {
+      const mine = player.id === me;
+      const challenge = row.challenges?.[player.id];
+      const points = row.points[player.id];
+      let action = '';
+      if (challenge?.status === 'pending') {
+        action = mine ? `<div class="review-actions"><button data-action="accept" data-category="${escapeHtml(row.category)}">Accept flag · 0 pts</button><button data-action="dispute" data-category="${escapeHtml(row.category)}">Dispute flag</button></div>` : '<small class="review-note">Flag sent · waiting for response</small>';
+      } else if (challenge?.status === 'disputed') {
+        action = mine ? `<div class="review-actions"><small class="review-note">You disputed this flag.</small><button data-action="concede" data-category="${escapeHtml(row.category)}">Accept flag instead</button></div>` : `<div class="review-actions"><small class="review-note">Your partner disputed the flag.</small><button data-action="withdraw" data-category="${escapeHtml(row.category)}" data-target="${escapeHtml(player.id)}">Withdraw flag · keep points</button></div>`;
+      } else if (challenge?.status === 'accepted') action = '<small class="review-note">Flag accepted · 0 points</small>';
+      else if (challenge?.status === 'withdrawn') action = '<small class="review-note">Flag withdrawn · points kept</small>';
+      else if (!mine && !state.finalized && !ready && row.basePoints[player.id] > 0) action = `<button class="flag-button" data-action="flag" data-category="${escapeHtml(row.category)}" data-target="${escapeHtml(player.id)}">⚑ Flag answer</button>`;
+      return `<div class="review-answer"><span class="review-name">${escapeHtml(player.name)}${mine ? ' (you)' : ''}</span><span class="review-value">${escapeHtml(row.answers[player.id] || '—')}</span><b>+${points} pts</b>${action}</div>`;
+    }).join('');
+    return `<div class="result-row"><strong>${escapeHtml(row.category)}</strong><div class="review-pair">${answers}</div></div>`;
+  }).join('');
+  $('challenge-panel').hidden = true; // Actions appear beside the relevant answer.
+  $('confirm-review').hidden = Boolean(state.finalized);
+  $('confirm-review').disabled = unresolved || !other?.connected;
+  $('confirm-review').textContent = ready ? 'Undo my confirmation' : 'Confirm my review ♡';
   $('next').hidden = state.hostId !== me;
-  $('next').disabled = state.players.some(p => !p.connected);
-  $('next-help').textContent = state.hostId === me ? 'Start the next round when you are both ready.' : 'Waiting for the host to start the next round ♡';
+  $('next').disabled = !state.finalized || state.players.some(p => !p.connected);
+  $('next-help').textContent = state.finalized
+    ? (state.hostId === me ? 'You can start the next round ♡' : 'Waiting for your person to start the next round ♡')
+    : `Reviews confirmed: ${state.players.filter(p => state.reviewReady?.[p.id]).length}/2. Points will be added after both confirm.`;
 }
+$('result-rows').addEventListener('click', event => {
+  const btn = event.target.closest('button[data-action]');
+  if (!btn || !state || state.phase !== 'results' || state.finalized) return;
+  const category = btn.dataset.category;
+  const action = btn.dataset.action;
+  if (action === 'flag') socket.emit('review:flag', { category, targetId: btn.dataset.target });
+  if (action === 'accept' || action === 'dispute') socket.emit('review:respond', { category, decision: action });
+  if (action === 'withdraw' || action === 'concede') socket.emit('review:resolve', { category, targetId: action === 'concede' ? me : btn.dataset.target, decision: action });
+});
+$('confirm-review').addEventListener('click', () => socket.emit(state.reviewReady?.[me] ? 'review:unconfirm' : 'review:confirm'));
 function render() {
   if (!state || !me) return;
   $('room-code').textContent = state.code;

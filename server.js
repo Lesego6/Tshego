@@ -40,7 +40,9 @@ function publicState(room) {
     hostId: room.hostId,
     chooserId: room.chooserId,
     endsAt: room.endsAt,
-    results: room.phase === 'results' ? room.results : null
+    results: room.phase === 'results' ? room.results : null,
+    reviewReady: room.reviewReady || {},
+    finalized: Boolean(room.finalized)
   };
 }
 function broadcast(room) { io.to(room.code).emit('room:state', publicState(room)); }
@@ -58,12 +60,12 @@ function finishRound(room) {
     const same = validA && validB && a.toLocaleLowerCase() === b.toLocaleLowerCase();
     const pointsA = validA ? (same ? 5 : 10) : 0;
     const pointsB = validB ? (same ? 5 : 10) : 0;
-    p1.score += pointsA;
-    p2.score += pointsB;
-    return { category, answers: { [p1.id]: a, [p2.id]: b }, points: { [p1.id]: pointsA, [p2.id]: pointsB } };
+    return { category, answers: { [p1.id]: a, [p2.id]: b }, points: { [p1.id]: pointsA, [p2.id]: pointsB }, basePoints: { [p1.id]: pointsA, [p2.id]: pointsB }, challenges: {} };
   });
   room.results = rows;
   room.phase = 'results';
+  room.reviewReady = {};
+  room.finalized = false;
   room.endsAt = null;
   broadcast(room);
 }
@@ -95,7 +97,7 @@ io.on('connection', socket => {
     if (socket.data.code) return error(socket, 'You are already in a room.');
     const code = makeCode();
     const player = { id: crypto.randomUUID(), token: crypto.randomBytes(24).toString('hex'), name: playerName, score: 0, connected: true };
-    const room = { code, players: [player], hostId: player.id, chooserId: player.id, phase: 'waiting', round: 0, letter: null, usedLetters: [], answers: {}, results: null, endsAt: null, timer: null };
+    const room = { code, players: [player], hostId: player.id, chooserId: player.id, phase: 'waiting', round: 0, letter: null, usedLetters: [], answers: {}, results: null, reviewReady: {}, finalized: false, endsAt: null, timer: null };
     rooms.set(code, room);
     joinRoom(socket, room, player);
   });
@@ -140,6 +142,8 @@ io.on('connection', socket => {
     room.round++;
     room.answers = {};
     room.phase = 'playing';
+    room.reviewReady = {};
+    room.finalized = false;
     scheduleFinish(room, ROUND_MS);
     broadcast(room);
   });
@@ -161,9 +165,79 @@ io.on('connection', socket => {
     if (remaining > STOP_MS) { scheduleFinish(room, STOP_MS); broadcast(room); }
   });
 
+
+  // Only the other player may challenge an answer. No points are awarded until both confirm.
+  socket.on('review:flag', ({ category, targetId } = {}) => {
+    const room = getRoom(socket);
+    if (!room || room.phase !== 'results' || room.finalized) return;
+    const reviewerId = socket.data.playerId;
+    if (targetId === reviewerId || !room.players.some(p => p.id === targetId)) return;
+    const row = room.results.find(r => r.category === category);
+    if (!row || !row.basePoints[targetId] || row.challenges[targetId]) return;
+    row.challenges[targetId] = { by: reviewerId, status: 'pending' };
+    room.reviewReady = {};
+    broadcast(room);
+  });
+
+  socket.on('review:respond', ({ category, decision } = {}) => {
+    const room = getRoom(socket);
+    if (!room || room.phase !== 'results' || room.finalized) return;
+    const row = room.results.find(r => r.category === category);
+    const challenge = row?.challenges[socket.data.playerId];
+    if (!challenge || challenge.status !== 'pending') return;
+    if (decision === 'accept') {
+      challenge.status = 'accepted';
+      row.points[socket.data.playerId] = 0;
+    } else if (decision === 'dispute') {
+      challenge.status = 'disputed';
+    } else return;
+    room.reviewReady = {};
+    broadcast(room);
+  });
+
+  // After a dispute, either the challenger withdraws or the author concedes.
+  // If neither agrees, the round stays in review; no unilateral score removal.
+  socket.on('review:resolve', ({ category, targetId, decision } = {}) => {
+    const room = getRoom(socket);
+    if (!room || room.phase !== 'results' || room.finalized) return;
+    const row = room.results.find(r => r.category === category);
+    const challenge = row?.challenges[targetId];
+    if (!challenge || challenge.status !== 'disputed') return;
+    if (decision === 'withdraw' && socket.data.playerId === challenge.by) {
+      challenge.status = 'withdrawn';
+    } else if (decision === 'concede' && socket.data.playerId === targetId) {
+      challenge.status = 'accepted';
+      row.points[targetId] = 0;
+    } else return;
+    room.reviewReady = {};
+    broadcast(room);
+  });
+
+  socket.on('review:confirm', () => {
+    const room = getRoom(socket);
+    if (!room || room.phase !== 'results' || room.finalized) return;
+    if (room.results.some(row => Object.values(row.challenges).some(c => c.status === 'pending' || c.status === 'disputed'))) {
+      return error(socket, 'Resolve all challenges before confirming.');
+    }
+    room.reviewReady[socket.data.playerId] = true;
+    if (room.players.every(p => room.reviewReady[p.id])) {
+      for (const row of room.results) for (const player of room.players) player.score += row.points[player.id];
+      room.finalized = true;
+    }
+    broadcast(room);
+  });
+
+  socket.on('review:unconfirm', () => {
+    const room = getRoom(socket);
+    if (!room || room.phase !== 'results' || room.finalized) return;
+    delete room.reviewReady[socket.data.playerId];
+    broadcast(room);
+  });
+
   socket.on('round:next', () => {
     const room = getRoom(socket);
     if (!room || room.phase !== 'results') return;
+    if (!room.finalized) return error(socket, 'Both players must finish reviewing first.');
     if (socket.data.playerId !== room.hostId) return error(socket, 'The host starts the next round.');
     if (room.players.some(p => !p.connected)) return error(socket, 'Wait for your partner to reconnect.');
     room.phase = 'choosing';
