@@ -1,77 +1,123 @@
-<!doctype html>
+
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#fff7f4" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff7f4">
   <title>LetterUs ♡</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main class="shell">
+    <header class="site-header">
+      <div class="brand">LetterUs <span>♡</span></div>
+      <p class="tagline">A little game for two hearts.</p>
+    </header>
 
     <div id="notice" role="status" aria-live="polite"></div>
+
     <section id="home" class="card">
-     
-    
+      <div class="illustration">♡ ♡</div>
+      <h1>Hi, love!</h1>
+      <p>Ready for a little word-game date?</p>
+
       <label for="name">Your name</label>
-      <input id="name" maxlength="24" placeholder="What should I call you?" autocomplete="nickname" />
-      <button id="create" class="primary">Create our room ♡</button>
+      <input id="name" maxlength="24"
+        placeholder="What should I call you?"
+        autocomplete="nickname">
+
+      <button id="create" class="primary" type="button">
+        Create our room ♡
+      </button>
+
       <div class="separator">or join your person</div>
+
       <label for="code">Room code</label>
-      <input id="code" maxlength="6" placeholder="ABC123" autocapitalize="characters" />
-      <button id="join" class="secondary">Join room</button>
-    </section>
-    <section id="game" hidden>
-      <div class="card topbar">
-        <div><span class="eyebrow">OUR ROOM</span><strong id="room-code">------</strong></div>
-        <button id="copy" class="small secondary">Copy invite link</button>
-      </div>
-      <div class="scores" id="scores"></div>
-      <div id="waiting" class="card" hidden>
-        
-        <h2>Waiting for your person...</h2>
-        <p>Share your room link so she can join you here.</p>
-      </div>
-      <div id="choosing" class="card" hidden>
-        <span class="eyebrow" id="round-label">ROUND 1</span>
-        <h2>Pick a mystery letter</h2>
-        <p id="choose-instruction">Tap a hidden tile to reveal your letter.</p>
-        <div class="alphabet" id="alphabet"></div>
-      </div>
-      <div id="playing" class="card" hidden>
-        <span class="eyebrow" id="play-round">ROUND 1</span>
-        <div class="letter"> <span id="letter">A</span> </div>
-        <div class="timer" id="timer">01:30</div>
-        <p class="helper" id="play-status">Think fast, love!</p>
-        <form id="answers-form">
-          <div id="fields" class="fields"></div>
-          <button type="submit" class="primary" id="submit">Submit my answers ♡</button>
-        </form>
-        <button id="stop" class="secondary">STOP! 10-second countdown</button>
-      </div>
-      <div id="results" class="card" hidden>
-    
-        <h2>Round complete!</h2>
-        <p>Review each other’s answers before the scores are final. Flag an answer you think is wrong; its author can accept or dispute the challenge.</p>
-        <p class="helper" id="review-status" role="status" aria-live="polite">Waiting for both players to review answers ♡</p>
-        <div id="result-rows" class="result-rows"></div>
-        <div id="challenge-panel" class="challenge-panel" hidden>
-          <h3>Answer challenge ♡</h3>
-          <p id="challenge-description">Your person has challenged an answer.</p>
-          <div id="challenge-actions" class="challenge-actions">
-            <button type="button" id="accept-challenge" class="primary">Accept flag · 0 points</button>
-            <button type="button" id="dispute-challenge" class="secondary">Dispute flag</button>
-          </div>
-          <p id="challenge-help" class="helper">Disputed answers stay pending until you both agree.</p>
-        </div>
-        <button type="button" id="confirm-review" class="secondary" disabled>Confirm my review ♡</button>
-        <button id="next" class="primary" disabled>Next round ♡</button>
-        <p class="helper" id="next-help"></p>
-      </div>
+      <input id="code" maxlength="6"
+        placeholder="ABC123"
+        autocapitalize="characters">
+
+      <button id="join" class="secondary" type="button">
+        Join room
+      </button>
     </section>
 
+    <section id="game" hidden>
+      <div class="card topbar">
+        <div>
+          <span class="eyebrow">OUR ROOM</span>
+          <strong id="room-code">------</strong>
+        </div>
+        <button id="copy" class="small secondary" type="button">
+          Copy invite link
+        </button>
+      </div>
+
+      <div class="scores" id="scores"></div>
+
+      <section id="waiting" class="card" hidden>
+        <h2>Waiting for your person...</h2>
+        <p>Share your room link so she can join you here.</p>
+      </section>
+
+      <section id="choosing" class="card" hidden>
+        <span class="eyebrow" id="round-label">ROUND 1</span>
+        <h2>Pick a mystery letter</h2>
+        <p id="choose-instruction">
+          Tap a hidden tile to reveal your letter.
+        </p>
+        <div class="alphabet" id="alphabet"></div>
+      </section>
+
+      <section id="playing" class="card" hidden>
+        <span class="eyebrow" id="play-round">ROUND 1</span>
+        <div class="letter"><span id="letter">A</span></div>
+        <div class="timer" id="timer">01:30</div>
+        <p class="helper" id="play-status">Think fast, love!</p>
+
+        <form id="answers-form">
+          <div id="fields" class="fields"></div>
+          <button id="submit" class="primary" type="submit">
+            Submit my answers ♡
+          </button>
+        </form>
+
+        <button id="stop" class="secondary" type="button">
+          STOP! 10-second countdown
+        </button>
+      </section>
+
+      <section id="results" class="card" hidden>
+        <span class="eyebrow">ANSWER REVIEW</span>
+        <h2>Let's check our answers ♡</h2>
+        <p>
+          Review each other's answers. Flag anything you think
+          is incorrect. The other player can accept or dispute it.
+        </p>
+
+        <p id="review-status" class="helper"
+          role="status" aria-live="polite"></p>
+
+        <div id="result-rows" class="result-rows"></div>
+
+        <button id="confirm-review" class="secondary"
+          type="button" disabled>
+          Confirm my review ♡
+        </button>
+
+        <button id="next" class="primary"
+          type="button" disabled>
+          Next round ♡
+        </button>
+
+        <p id="next-help" class="helper"></p>
+      </section>
+    </section>
+
+    <footer>Made for us, with love ♡</footer>
   </main>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="/script.js"></script>
 </body>
