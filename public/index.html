@@ -54,9 +54,20 @@
       <div id="results" class="card" hidden>
     
         <h2>Round complete!</h2>
-        <p>10 points for a unique answer, 5 for a matching one.</p>
+        <p>Review each other’s answers before the scores are final. Flag an answer you think is wrong; its author can accept or dispute the challenge.</p>
+        <p class="helper" id="review-status" role="status" aria-live="polite">Waiting for both players to review answers ♡</p>
         <div id="result-rows" class="result-rows"></div>
-        <button id="next" class="primary">Next round ♡</button>
+        <div id="challenge-panel" class="challenge-panel" hidden>
+          <h3>Answer challenge ♡</h3>
+          <p id="challenge-description">Your person has challenged an answer.</p>
+          <div id="challenge-actions" class="challenge-actions">
+            <button type="button" id="accept-challenge" class="primary">Accept flag · 0 points</button>
+            <button type="button" id="dispute-challenge" class="secondary">Dispute flag</button>
+          </div>
+          <p id="challenge-help" class="helper">Disputed answers stay pending until you both agree.</p>
+        </div>
+        <button type="button" id="confirm-review" class="secondary" disabled>Confirm my review ♡</button>
+        <button id="next" class="primary" disabled>Next round ♡</button>
         <p class="helper" id="next-help"></p>
       </div>
     </section>
