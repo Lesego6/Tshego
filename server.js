@@ -1,8 +1,8 @@
 
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
 const crypto = require('crypto');
+const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
@@ -26,11 +26,21 @@ const CATEGORIES = [
   'Car',
   'Brand',
   'Country',
-  'Animal'
+  'Animal',
+  'School',
+  'University or college',
+  'Shop or store',
+  'Restaurant or fast food',
+  'City or town',
+  'Food or dish',
+  'Celebrity',
+  'Sport',
+  'Job or profession',
+  'Movie or TV show'
 ];
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const ROUND_MS = 90000;
+const ROUND_MS = 180000;
 const STOP_MS = 10000;
 
 function cleanName(value) {
@@ -90,85 +100,6 @@ function broadcast(room) {
   io.to(room.code).emit('room:state', publicState(room));
 }
 
-function clearRoundTimer(room) {
-  if (room.timer) clearTimeout(room.timer);
-  room.timer = null;
-}
-
-function finishRound(room) {
-  if (room.phase !== 'playing') return;
-
-  clearRoundTimer(room);
-
-  const [first, second] = room.players;
-
-  const rows = CATEGORIES.map(category => {
-    const a = cleanAnswer(
-      room.answers[first.id]?.[category]
-    );
-
-    const b = cleanAnswer(
-      room.answers[second.id]?.[category]
-    );
-
-    const validA =
-      a.length > 0 &&
-      a[0].toUpperCase() === room.letter;
-
-    const validB =
-      b.length > 0 &&
-      b[0].toUpperCase() === room.letter;
-
-    const same =
-      validA &&
-      validB &&
-      a.toLocaleLowerCase() === b.toLocaleLowerCase();
-
-    const pointsA = validA
-      ? same ? 5 : 10
-      : 0;
-
-    const pointsB = validB
-      ? same ? 5 : 10
-      : 0;
-
-    return {
-      category,
-      answers: {
-        [first.id]: a,
-        [second.id]: b
-      },
-      points: {
-        [first.id]: pointsA,
-        [second.id]: pointsB
-      },
-      basePoints: {
-        [first.id]: pointsA,
-        [second.id]: pointsB
-      },
-      challenges: {}
-    };
-  });
-
-  room.results = rows;
-  room.phase = 'results';
-  room.reviewReady = {};
-  room.finalized = false;
-  room.endsAt = null;
-
-  broadcast(room);
-}
-
-function scheduleFinish(room, duration) {
-  clearRoundTimer(room);
-
-  room.endsAt = Date.now() + duration;
-
-  room.timer = setTimeout(() => {
-    finishRound(room);
-  }, duration);
-}
-
 function sendError(socket, message) {
   socket.emit('game:error', message);
 }
@@ -207,6 +138,110 @@ function joinRoom(socket, room, player) {
   broadcast(room);
 }
 
+function clearRoundTimer(room) {
+  if (room.timer) {
+    clearTimeout(room.timer);
+  }
+
+  room.timer = null;
+}
+
+function scheduleFinish(room, duration) {
+  clearRoundTimer(room);
+
+  room.endsAt = Date.now() + duration;
+
+  room.timer = setTimeout(() => {
+    finishRound(room);
+  }, duration);
+}
+
+// The server chooses a secret random letter.
+// Previously played letters cannot repeat until all 26 are used.
+function chooseRandomLetter(room) {
+  if (room.usedLetters.length >= LETTERS.length) {
+    room.usedLetters = [];
+  }
+
+  const available = LETTERS.filter(
+    letter => !room.usedLetters.includes(letter)
+  );
+
+  const index = crypto.randomInt(available.length);
+  const chosen = available[index];
+
+  room.usedLetters.push(chosen);
+
+  return chosen;
+}
+
+function finishRound(room) {
+  if (room.phase !== 'playing') return;
+
+  clearRoundTimer(room);
+
+  const [first, second] = room.players;
+
+  // Use saved answers when a player has not pressed Submit.
+  for (const player of room.players) {
+    if (!room.answers[player.id]) {
+      room.answers[player.id] = {
+        ...(room.drafts[player.id] || {})
+      };
+    }
+  }
+
+  room.results = CATEGORIES.map(category => {
+    const a = cleanAnswer(
+      room.answers[first.id]?.[category]
+    );
+
+    const b = cleanAnswer(
+      room.answers[second.id]?.[category]
+    );
+
+    const validA =
+      a.length > 0 &&
+      a[0].toUpperCase() === room.letter;
+
+    const validB =
+      b.length > 0 &&
+      b[0].toUpperCase() === room.letter;
+
+    const same =
+      validA &&
+      validB &&
+      a.toLocaleLowerCase() === b.toLocaleLowerCase();
+
+    const pointsA = validA ? (same ? 5 : 10) : 0;
+    const pointsB = validB ? (same ? 5 : 10) : 0;
+
+    return {
+      category,
+      answers: {
+        [first.id]: a,
+        [second.id]: b
+      },
+      points: {
+        [first.id]: pointsA,
+        [second.id]: pointsB
+      },
+      basePoints: {
+        [first.id]: pointsA,
+        [second.id]: pointsB
+      },
+      challenges: {}
+    };
+  });
+
+  room.phase = 'results';
+  room.reviewReady = {};
+  room.finalized = false;
+  room.endsAt = null;
+
+  broadcast(room);
+}
+
 function hasUnresolvedChallenges(room) {
   return room.results.some(row =>
     Object.values(row.challenges).some(challenge =>
@@ -218,6 +253,7 @@ function hasUnresolvedChallenges(room) {
 
 io.on('connection', socket => {
 
+  // CREATE ROOM
   socket.on('room:create', ({ name } = {}) => {
     const playerName = cleanName(name);
 
@@ -249,6 +285,7 @@ io.on('connection', socket => {
       letter: null,
       usedLetters: [],
       answers: {},
+      drafts: {},
       results: null,
       reviewReady: {},
       finalized: false,
@@ -260,11 +297,13 @@ io.on('connection', socket => {
     joinRoom(socket, room, player);
   });
 
+  // JOIN ROOM
   socket.on('room:join', ({ code, name } = {}) => {
-    const room = rooms.get(
-      String(code || '').trim().toUpperCase()
-    );
+    const roomCode = String(code || '')
+      .trim()
+      .toUpperCase();
 
+    const room = rooms.get(roomCode);
     const playerName = cleanName(name);
 
     if (!room) {
@@ -295,6 +334,7 @@ io.on('connection', socket => {
     joinRoom(socket, room, player);
   });
 
+  // RECONNECT TO ROOM
   socket.on('room:resume', ({ code, token } = {}) => {
     const room = rooms.get(
       String(code || '').trim().toUpperCase()
@@ -323,8 +363,10 @@ io.on('connection', socket => {
     joinRoom(socket, room, player);
   });
 
-  socket.on('round:choose', ({ letter } = {}) => {
+  // RANDOM MYSTERY LETTER
+  socket.on('round:choose', ({ tile } = {}) => {
     const room = getRoom(socket);
+
     if (!room) return;
 
     if (
@@ -348,38 +390,78 @@ io.on('connection', socket => {
       );
     }
 
-    const chosen = String(letter || '').toUpperCase();
-
     if (
-      !LETTERS.includes(chosen) ||
-      room.usedLetters.includes(chosen)
+      !Number.isInteger(tile) ||
+      tile < 0 ||
+      tile >= 26
     ) {
-      return sendError(
-        socket,
-        'Choose an unused mystery tile.'
-      );
+      return sendError(socket, 'Choose a mystery tile.');
     }
 
-    room.usedLetters.push(chosen);
+    // The tile number is only a selection.
+    // It does not reveal or determine a fixed letter.
+    const chosen = chooseRandomLetter(room);
+
     room.letter = chosen;
     room.round++;
     room.answers = {};
+    room.drafts = {};
     room.results = null;
-    room.phase = 'playing';
     room.reviewReady = {};
     room.finalized = false;
+    room.phase = 'playing';
 
     scheduleFinish(room, ROUND_MS);
     broadcast(room);
   });
 
+  // AUTOMATIC ANSWER SAVING
+  socket.on('round:draft', ({ round, answers } = {}) => {
+    const room = getRoom(socket);
+
+    if (
+      !room ||
+      room.phase !== 'playing' ||
+      room.round !== round ||
+      Date.now() >= room.endsAt ||
+      room.answers[socket.data.playerId]
+    ) {
+      return;
+    }
+
+    if (
+      !answers ||
+      typeof answers !== 'object' ||
+      Array.isArray(answers)
+    ) {
+      return;
+    }
+
+    const draft = room.drafts[socket.data.playerId] || {};
+
+    for (const category of CATEGORIES) {
+      if (
+        Object.prototype.hasOwnProperty.call(
+          answers,
+          category
+        )
+      ) {
+        draft[category] = cleanAnswer(answers[category]);
+      }
+    }
+
+    room.drafts[socket.data.playerId] = draft;
+  });
+
+  // SUBMIT ANSWERS EARLY
   socket.on('round:submit', ({ answers } = {}) => {
     const room = getRoom(socket);
 
     if (
       !room ||
       room.phase !== 'playing' ||
-      room.answers[socket.data.playerId]
+      room.answers[socket.data.playerId] ||
+      Date.now() >= room.endsAt
     ) {
       return;
     }
@@ -387,21 +469,27 @@ io.on('connection', socket => {
     const sanitized = {};
 
     for (const category of CATEGORIES) {
-      sanitized[category] = cleanAnswer(answers?.[category]);
+      sanitized[category] = cleanAnswer(
+        answers?.[category]
+      );
     }
 
     room.answers[socket.data.playerId] = sanitized;
+    room.drafts[socket.data.playerId] = sanitized;
 
     broadcast(room);
 
     if (
       room.players.length === 2 &&
-      room.players.every(player => room.answers[player.id])
+      room.players.every(
+        player => room.answers[player.id]
+      )
     ) {
       finishRound(room);
     }
   });
 
+  // STOP COUNTDOWN
   socket.on('round:stop', () => {
     const room = getRoom(socket);
 
@@ -421,7 +509,7 @@ io.on('connection', socket => {
     }
   });
 
-  // Player flags their partner's answer.
+  // FLAG AN ANSWER
   socket.on('review:flag', ({ category, targetId } = {}) => {
     const room = getRoom(socket);
 
@@ -438,13 +526,15 @@ io.on('connection', socket => {
     if (room.reviewReady[reviewerId]) {
       return sendError(
         socket,
-        'Undo your review confirmation before flagging.'
+        'Undo your confirmation before flagging.'
       );
     }
 
     if (
       targetId === reviewerId ||
-      !room.players.some(player => player.id === targetId)
+      !room.players.some(
+        player => player.id === targetId
+      )
     ) {
       return;
     }
@@ -470,7 +560,7 @@ io.on('connection', socket => {
     broadcast(room);
   });
 
-  // Author accepts or disputes a flag.
+  // ACCEPT OR DISPUTE A FLAG
   socket.on('review:respond', ({ category, decision } = {}) => {
     const room = getRoom(socket);
 
@@ -486,9 +576,13 @@ io.on('connection', socket => {
       row => row.category === category
     );
 
-    const challenge = row?.challenges[socket.data.playerId];
+    const challenge =
+      row?.challenges[socket.data.playerId];
 
-    if (!challenge || challenge.status !== 'pending') {
+    if (
+      !challenge ||
+      challenge.status !== 'pending'
+    ) {
       return;
     }
 
@@ -505,7 +599,7 @@ io.on('connection', socket => {
     broadcast(room);
   });
 
-  // Resolve disputed answers by agreement.
+  // RESOLVE DISPUTE
   socket.on(
     'review:resolve',
     ({ category, targetId, decision } = {}) => {
@@ -525,7 +619,10 @@ io.on('connection', socket => {
 
       const challenge = row?.challenges[targetId];
 
-      if (!challenge || challenge.status !== 'disputed') {
+      if (
+        !challenge ||
+        challenge.status !== 'disputed'
+      ) {
         return;
       }
 
@@ -549,7 +646,7 @@ io.on('connection', socket => {
     }
   );
 
-  // Both players must confirm before points are added.
+  // BOTH PLAYERS CONFIRM SCORES
   socket.on('review:confirm', () => {
     const room = getRoom(socket);
 
@@ -572,7 +669,9 @@ io.on('connection', socket => {
 
     if (
       room.players.length === 2 &&
-      room.players.every(player => room.reviewReady[player.id])
+      room.players.every(
+        player => room.reviewReady[player.id]
+      )
     ) {
       for (const row of room.results) {
         for (const player of room.players) {
@@ -601,9 +700,16 @@ io.on('connection', socket => {
     broadcast(room);
   });
 
+  // NEXT ROUND
   socket.on('round:next', () => {
     const room = getRoom(socket);
-    if (!room || room.phase !== 'results') return;
+
+    if (
+      !room ||
+      room.phase !== 'results'
+    ) {
+      return;
+    }
 
     if (!room.finalized) {
       return sendError(
@@ -619,7 +725,9 @@ io.on('connection', socket => {
       );
     }
 
-    if (room.players.some(player => !player.connected)) {
+    if (
+      room.players.some(player => !player.connected)
+    ) {
       return sendError(
         socket,
         'Wait for your partner to reconnect.'
@@ -628,8 +736,9 @@ io.on('connection', socket => {
 
     room.phase = 'choosing';
     room.letter = null;
-    room.results = null;
     room.answers = {};
+    room.drafts = {};
+    room.results = null;
     room.reviewReady = {};
     room.finalized = false;
 
@@ -637,15 +746,13 @@ io.on('connection', socket => {
       player => player.id !== room.chooserId
     )?.id || room.hostId;
 
-    if (room.usedLetters.length === LETTERS.length) {
-      room.usedLetters = [];
-    }
-
     broadcast(room);
   });
 
+  // DISCONNECT
   socket.on('disconnect', () => {
     const room = getRoom(socket);
+
     if (!room) return;
 
     const player = room.players.find(
@@ -655,10 +762,14 @@ io.on('connection', socket => {
     player.connected = false;
     broadcast(room);
 
-    if (room.players.every(player => !player.connected)) {
+    if (
+      room.players.every(player => !player.connected)
+    ) {
       setTimeout(() => {
         if (
-          room.players.every(player => !player.connected) &&
+          room.players.every(
+            player => !player.connected
+          ) &&
           rooms.get(room.code) === room
         ) {
           clearRoundTimer(room);

@@ -421,3 +421,8 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+/* Keep the expanded category list easy to scan on phones. */
+.fields { max-height: none; }
+.fields > div { min-width: 0; }
+@media (max-width: 520px) { .fields { grid-template-columns: 1fr; } }
