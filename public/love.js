@@ -68,7 +68,7 @@
     return data;
   }
 
-  function clearSession(message = "Signed out ♡") {
+  function clearSession(message = "Signed out ") {
     token = "";
     account = null;
     messages = [];
@@ -108,15 +108,15 @@
     if (!account) return;
 
     $("love-greeting").textContent =
-      `Welcome, ${account.displayName} ♡`;
+      `Welcome, ${account.displayName}`;
 
     $("love-invite").textContent =
       account.inviteCode || "";
 
     $("love-partner").textContent =
       account.partnerName
-        ? `Connected with ${account.partnerName} ♡`
-        : "Give your person your invitation code, or enter theirs below.";
+        ? `Connected with ${account.partnerName} `
+        : "Give your babyyyyyyy your invitation code, or enter theirs below.";
   }
 
   async function refresh() {
@@ -183,12 +183,12 @@
 
     $("love-unread").textContent =
       unreadCount > 0
-        ? `${unreadCount} unopened ♡`
+        ? `${unreadCount} unopened `
         : "";
 
     if (messages.length === 0) {
       mailbox.textContent =
-        "Your little mailbox is empty for now ♡";
+        "Your little mailbox is empty for now ";
       return;
     }
 
@@ -232,7 +232,7 @@
 
   function displayHug(senderName, isMine = false) {
     const text = isMine
-      ? "You sent the biggest, warmest hug! ♡"
+      ? "You sent the biggest, warmest hug! "
       : `${senderName} is sending you the biggest, warmest hug! ♡`;
 
     $("love-hug-text").textContent = text;
@@ -259,8 +259,8 @@
     } else {
       $("love-letter-title").textContent =
         message.mine
-          ? "A letter from you ♡"
-          : `A letter from ${message.sender_name} ♡`;
+          ? "A letter from you "
+          : `A letter from ${message.sender_name} `;
 
       $("love-letter-body").textContent =
         message.body || "";
@@ -328,7 +328,7 @@
 
         identifySocket();
 
-        feedback("Welcome to Our Forever Space ♡");
+        feedback("Welcome to Our Forever Space ");
 
         await refresh();
       } catch (error) {
@@ -364,7 +364,7 @@
 
       try {
         await api("/logout", "POST");
-        clearSession("Signed out. See you soon ♡");
+        clearSession("Signed out. See you soon ");
       } catch (error) {
         feedback(
           `Couldn't sign out on the server: ${error.message}`
@@ -382,7 +382,7 @@
         $("love-pair-code").value.trim();
 
       if (!code) {
-        feedback("Enter your person's invitation code ♡");
+        feedback("Enter your babyyyyyyy's invitation code ");
         return;
       }
 
@@ -394,7 +394,7 @@
 
         $("love-pair-code").value = "";
 
-        feedback("Your hearts are connected ♡");
+        feedback("Your hearts are connected ");
 
         await refresh();
       } catch (error) {
@@ -414,7 +414,7 @@
         $("love-note-text").value.trim();
 
       if (!body) {
-        feedback("Write a little something first ♡");
+        feedback("Write a little something first ");
         return;
       }
 
@@ -434,7 +434,7 @@
 
         $("love-note-text").value = "";
 
-        feedback("Your Love Note is on its way ♡");
+        feedback("Your Love Note is on its way ");
 
         await refresh();
       } catch (error) {
@@ -459,7 +459,7 @@
         kind: "hug"
       });
 
-      feedback("A big warm hug has been sent ♡");
+      feedback("A big warm hug has been sent");
 
       await refresh();
     } catch (error) {
@@ -522,7 +522,7 @@
         displayHug(senderName);
       } else if (kind === "note") {
         feedback(
-          `${senderName} left you a little Love Note ♡`
+          `${senderName} left you a little Love Note `
         );
       }
 
