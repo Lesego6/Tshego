@@ -3,6 +3,8 @@ const express = require('express');
 const http = require('http');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
+require('dotenv').config();
+const createLoveFeatures = require('./love');
 
 const app = express();
 const server = http.createServer(app);
@@ -40,8 +42,20 @@ const CATEGORIES = [
 ];
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const ROUND_MS = 180000;
 const STOP_MS = 10000;
+const REVIEW_COMMENT_MAX = 500;
+const HISTORY_LIMIT = 5;
+
+const DEFAULT_SETTINGS = Object.freeze({
+  roundSeconds: 180,
+  categoryCount: CATEGORIES.length,
+  strictFirstLetter: true
+});
+
+const SETTINGS_OPTIONS = Object.freeze({
+  roundSeconds: [60, 120, 180, 240, 300],
+  categoryCount: [8, 12, CATEGORIES.length]
+});
 
 function cleanName(value) {
   return String(value || '')
@@ -55,6 +69,129 @@ function cleanAnswer(value) {
     .trim()
     .replace(/\s+/g, ' ')
     .slice(0, 70);
+}
+
+function cleanReviewComment(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, REVIEW_COMMENT_MAX);
+}
+
+function defaultSettings() {
+  return {
+    ...DEFAULT_SETTINGS
+  };
+}
+
+function optionValue(value, options, fallback) {
+  const parsed = Number(value);
+
+  return options.includes(parsed)
+    ? parsed
+    : fallback;
+}
+
+function cleanSettings(current, incoming = {}) {
+  incoming = incoming || {};
+
+  const settings = {
+    ...defaultSettings(),
+    ...(current || {})
+  };
+
+  return {
+    roundSeconds: optionValue(
+      incoming.roundSeconds,
+      SETTINGS_OPTIONS.roundSeconds,
+      settings.roundSeconds
+    ),
+    categoryCount: optionValue(
+      incoming.categoryCount,
+      SETTINGS_OPTIONS.categoryCount,
+      settings.categoryCount
+    ),
+    strictFirstLetter:
+      typeof incoming.strictFirstLetter === 'boolean'
+        ? incoming.strictFirstLetter
+        : settings.strictFirstLetter
+  };
+}
+
+function activeCategories(room) {
+  const settings = cleanSettings(room.settings);
+
+  return CATEGORIES.slice(0, settings.categoryCount);
+}
+
+function currentRoundCategories(room) {
+  return room.roundCategories || activeCategories(room);
+}
+
+function isValidAnswer(answer, room) {
+  if (!answer.length) {
+    return false;
+  }
+
+  if (!cleanSettings(room.settings).strictFirstLetter) {
+    return true;
+  }
+
+  return answer[0].toUpperCase() === room.letter;
+}
+
+function roundTotals(room) {
+  const totals = {};
+
+  for (const player of room.players) {
+    totals[player.id] = room.results.reduce(
+      (sum, row) => sum + (row.points[player.id] || 0),
+      0
+    );
+  }
+
+  return totals;
+}
+
+function historyEntry(room) {
+  const totals = roundTotals(room);
+  const highScore = Math.max(
+    ...Object.values(totals)
+  );
+
+  return {
+    round: room.round,
+    letter: room.letter,
+    settings: cleanSettings(room.settings),
+    players: room.players.map(player => ({
+      id: player.id,
+      name: player.name
+    })),
+    totals,
+    winnerIds: room.players
+      .filter(player => totals[player.id] === highScore)
+      .map(player => player.id),
+    rows: room.results.map(row => ({
+      category: row.category,
+      answers: {
+        ...row.answers
+      },
+      points: {
+        ...row.points
+      },
+      challenges: Object.fromEntries(
+        Object.entries(row.challenges).map(
+          ([targetId, challenge]) => [
+            targetId,
+            {
+              by: challenge.by,
+              status: challenge.status
+            }
+          ]
+        )
+      )
+    }))
+  };
 }
 
 function makeCode() {
@@ -77,7 +214,9 @@ function publicState(room) {
     round: room.round,
     letter: room.letter,
     usedLetters: room.usedLetters,
-    categories: CATEGORIES,
+    categories: currentRoundCategories(room),
+    settings: cleanSettings(room.settings),
+    settingsOptions: SETTINGS_OPTIONS,
     players: room.players.map(player => ({
       id: player.id,
       name: player.name,
@@ -92,7 +231,8 @@ function publicState(room) {
       ? room.results
       : null,
     reviewReady: room.reviewReady || {},
-    finalized: Boolean(room.finalized)
+    finalized: Boolean(room.finalized),
+    history: room.history || []
   };
 }
 
@@ -191,7 +331,9 @@ function finishRound(room) {
     }
   }
 
-  room.results = CATEGORIES.map(category => {
+  const categories = currentRoundCategories(room);
+
+  room.results = categories.map(category => {
     const a = cleanAnswer(
       room.answers[first.id]?.[category]
     );
@@ -200,13 +342,8 @@ function finishRound(room) {
       room.answers[second.id]?.[category]
     );
 
-    const validA =
-      a.length > 0 &&
-      a[0].toUpperCase() === room.letter;
-
-    const validB =
-      b.length > 0 &&
-      b[0].toUpperCase() === room.letter;
+    const validA = isValidAnswer(a, room);
+    const validB = isValidAnswer(b, room);
 
     const same =
       validA &&
@@ -288,6 +425,9 @@ io.on('connection', socket => {
       drafts: {},
       results: null,
       reviewReady: {},
+      settings: defaultSettings(),
+      roundCategories: null,
+      history: [],
       finalized: false,
       endsAt: null,
       timer: null
@@ -332,6 +472,34 @@ io.on('connection', socket => {
 
     room.players.push(player);
     joinRoom(socket, room, player);
+  });
+
+  // ROOM SETTINGS
+  socket.on('settings:update', settings => {
+    const room = getRoom(socket);
+
+    if (!room) return;
+
+    if (socket.data.playerId !== room.hostId) {
+      return sendError(
+        socket,
+        'Only the host can change room settings.'
+      );
+    }
+
+    if (!['waiting', 'choosing'].includes(room.phase)) {
+      return sendError(
+        socket,
+        'Settings can change before a round starts.'
+      );
+    }
+
+    room.settings = cleanSettings(
+      room.settings,
+      settings
+    );
+
+    broadcast(room);
   });
 
   // RECONNECT TO ROOM
@@ -404,6 +572,7 @@ io.on('connection', socket => {
 
     room.letter = chosen;
     room.round++;
+    room.roundCategories = activeCategories(room);
     room.answers = {};
     room.drafts = {};
     room.results = null;
@@ -411,7 +580,10 @@ io.on('connection', socket => {
     room.finalized = false;
     room.phase = 'playing';
 
-    scheduleFinish(room, ROUND_MS);
+    scheduleFinish(
+      room,
+      cleanSettings(room.settings).roundSeconds * 1000
+    );
     broadcast(room);
   });
 
@@ -439,7 +611,7 @@ io.on('connection', socket => {
 
     const draft = room.drafts[socket.data.playerId] || {};
 
-    for (const category of CATEGORIES) {
+    for (const category of currentRoundCategories(room)) {
       if (
         Object.prototype.hasOwnProperty.call(
           answers,
@@ -468,7 +640,7 @@ io.on('connection', socket => {
 
     const sanitized = {};
 
-    for (const category of CATEGORIES) {
+    for (const category of currentRoundCategories(room)) {
       sanitized[category] = cleanAnswer(
         answers?.[category]
       );
@@ -510,94 +682,120 @@ io.on('connection', socket => {
   });
 
   // FLAG AN ANSWER
-  socket.on('review:flag', ({ category, targetId } = {}) => {
-    const room = getRoom(socket);
+  socket.on(
+    'review:flag',
+    ({ category, targetId, reason } = {}) => {
+      const room = getRoom(socket);
 
-    if (
-      !room ||
-      room.phase !== 'results' ||
-      room.finalized
-    ) {
-      return;
-    }
+      if (
+        !room ||
+        room.phase !== 'results' ||
+        room.finalized
+      ) {
+        return;
+      }
 
-    const reviewerId = socket.data.playerId;
+      const reviewerId = socket.data.playerId;
+      const cleanReason = cleanReviewComment(reason);
 
-    if (room.reviewReady[reviewerId]) {
-      return sendError(
-        socket,
-        'Undo your confirmation before flagging.'
+      if (!cleanReason) {
+        return sendError(
+          socket,
+          'Add a reason for the flag.'
+        );
+      }
+
+      if (room.reviewReady[reviewerId]) {
+        return sendError(
+          socket,
+          'Undo your confirmation before flagging.'
+        );
+      }
+
+      if (
+        targetId === reviewerId ||
+        !room.players.some(
+          player => player.id === targetId
+        )
+      ) {
+        return;
+      }
+
+      const row = room.results.find(
+        row => row.category === category
       );
+
+      if (
+        !row ||
+        !row.basePoints[targetId] ||
+        row.challenges[targetId]
+      ) {
+        return;
+      }
+
+      row.challenges[targetId] = {
+        by: reviewerId,
+        reason: cleanReason,
+        response: '',
+        status: 'pending'
+      };
+
+      room.reviewReady = {};
+      broadcast(room);
     }
-
-    if (
-      targetId === reviewerId ||
-      !room.players.some(
-        player => player.id === targetId
-      )
-    ) {
-      return;
-    }
-
-    const row = room.results.find(
-      row => row.category === category
-    );
-
-    if (
-      !row ||
-      !row.basePoints[targetId] ||
-      row.challenges[targetId]
-    ) {
-      return;
-    }
-
-    row.challenges[targetId] = {
-      by: reviewerId,
-      status: 'pending'
-    };
-
-    room.reviewReady = {};
-    broadcast(room);
-  });
+  );
 
   // ACCEPT OR DISPUTE A FLAG
-  socket.on('review:respond', ({ category, decision } = {}) => {
-    const room = getRoom(socket);
+  socket.on(
+    'review:respond',
+    ({ category, decision, response } = {}) => {
+      const room = getRoom(socket);
 
-    if (
-      !room ||
-      room.phase !== 'results' ||
-      room.finalized
-    ) {
-      return;
+      if (
+        !room ||
+        room.phase !== 'results' ||
+        room.finalized
+      ) {
+        return;
+      }
+
+      const row = room.results.find(
+        row => row.category === category
+      );
+
+      const challenge =
+        row?.challenges[socket.data.playerId];
+
+      if (
+        !challenge ||
+        challenge.status !== 'pending'
+      ) {
+        return;
+      }
+
+      if (decision === 'accept') {
+        challenge.status = 'accepted';
+        row.points[socket.data.playerId] = 0;
+      } else if (decision === 'dispute') {
+        const cleanResponse = cleanReviewComment(response);
+
+        if (!cleanResponse) {
+          return sendError(
+            socket,
+            'Add an explanation before disputing.'
+          );
+        }
+
+        challenge.response = cleanResponse;
+        challenge.status = 'disputed';
+      } else {
+        return;
+      }
+
+      room.reviewReady = {};
+      broadcast(room);
     }
-
-    const row = room.results.find(
-      row => row.category === category
-    );
-
-    const challenge =
-      row?.challenges[socket.data.playerId];
-
-    if (
-      !challenge ||
-      challenge.status !== 'pending'
-    ) {
-      return;
-    }
-
-    if (decision === 'accept') {
-      challenge.status = 'accepted';
-      row.points[socket.data.playerId] = 0;
-    } else if (decision === 'dispute') {
-      challenge.status = 'disputed';
-    } else {
-      return;
-    }
-
-    room.reviewReady = {};
-    broadcast(room);
-  });
+  );
 
   // RESOLVE DISPUTE
   socket.on(
@@ -679,6 +877,11 @@ io.on('connection', socket => {
         }
       }
 
+      room.history = [
+        ...(room.history || []),
+        historyEntry(room)
+      ].slice(-HISTORY_LIMIT);
+
       room.finalized = true;
     }
 
@@ -736,6 +939,7 @@ io.on('connection', socket => {
 
     room.phase = 'choosing';
     room.letter = null;
+    room.roundCategories = null;
     room.answers = {};
     room.drafts = {};
     room.results = null;
@@ -780,6 +984,10 @@ io.on('connection', socket => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`LetterUs listening on port ${PORT}`);
-});
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is required. Configure Neon PostgreSQL.');
+  process.exit(1);
+}
+createLoveFeatures(app, io).then(() => {
+  server.listen(PORT, '0.0.0.0', () => console.log(`LetterUs listening on port ${PORT}`));
+}).catch(error => { console.error('Database initialization failed:', error); process.exit(1); });

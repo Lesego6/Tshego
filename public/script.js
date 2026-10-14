@@ -16,6 +16,7 @@ let previousRound = 0;
 let currentDraft = {};
 let timerHandle = null;
 let choosingLocked = false;
+let pendingReviewComment = null;
 
 function notice(message) {
   $('notice').textContent = message;
@@ -38,6 +39,59 @@ function escapeHtml(value) {
       "'": '&#39;'
     }[character])
   );
+}
+
+function cleanReviewComment(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 500);
+}
+
+function updateReviewModalCount() {
+  $('review-modal-count').textContent =
+    `${$('review-modal-input').value.length}/500`;
+}
+
+function closeReviewModal(value) {
+  if (!pendingReviewComment) {
+    return;
+  }
+
+  const { resolve } = pendingReviewComment;
+  pendingReviewComment = null;
+
+  $('review-modal').hidden = true;
+  $('review-modal-input').value = '';
+  updateReviewModalCount();
+
+  resolve(value);
+}
+
+function requestReviewComment({
+  title,
+  prompt,
+  submitLabel,
+  emptyMessage
+}) {
+  if (pendingReviewComment) {
+    closeReviewModal(null);
+  }
+
+  return new Promise(resolve => {
+    pendingReviewComment = {
+      resolve,
+      emptyMessage
+    };
+
+    $('review-modal-title').textContent = title;
+    $('review-modal-prompt').textContent = prompt;
+    $('review-modal-submit').textContent = submitLabel;
+    $('review-modal').hidden = false;
+
+    updateReviewModalCount();
+    $('review-modal-input').focus();
+  });
 }
 
 function showScreen(name) {
@@ -117,6 +171,59 @@ $('stop').addEventListener('click', () => {
 
 $('next').addEventListener('click', () => {
   socket.emit('round:next');
+});
+
+$('review-modal-input').addEventListener(
+  'input',
+  updateReviewModalCount
+);
+
+$('review-modal-cancel').addEventListener(
+  'click',
+  () => closeReviewModal(null)
+);
+
+$('review-modal').addEventListener('click', event => {
+  if (event.target === $('review-modal')) {
+    closeReviewModal(null);
+  }
+});
+
+$('review-modal-form').addEventListener('submit', event => {
+  event.preventDefault();
+
+  if (!pendingReviewComment) {
+    return;
+  }
+
+  const comment = cleanReviewComment(
+    $('review-modal-input').value
+  );
+
+  if (!comment) {
+    notice(pendingReviewComment.emptyMessage);
+    $('review-modal-input').focus();
+    return;
+  }
+
+  closeReviewModal(comment);
+});
+
+document.addEventListener('keydown', event => {
+  if (
+    event.key === 'Escape' &&
+    pendingReviewComment
+  ) {
+    closeReviewModal(null);
+  }
+});
+
+[
+  'setting-timer',
+  'setting-categories',
+  'setting-strict'
+].forEach(id => {
+  $(id).addEventListener('change', emitSettingsUpdate);
 });
 
 // COLLECT ALL CURRENT ANSWERS
@@ -211,6 +318,70 @@ function renderScores() {
       <span>points</span>
     </div>
   `).join('');
+}
+
+function currentSettings() {
+  return {
+    roundSeconds: 180,
+    categoryCount: 18,
+    strictFirstLetter: true,
+    ...(state?.settings || {})
+  };
+}
+
+function settingsEditable() {
+  return Boolean(
+    state &&
+    ['waiting', 'choosing'].includes(state.phase)
+  );
+}
+
+function emitSettingsUpdate() {
+  if (
+    !state ||
+    state.hostId !== me ||
+    !settingsEditable()
+  ) {
+    return;
+  }
+
+  socket.emit('settings:update', {
+    roundSeconds: Number($('setting-timer').value),
+    categoryCount: Number($('setting-categories').value),
+    strictFirstLetter: $('setting-strict').checked
+  });
+}
+
+function renderSettings() {
+  const panel = $('settings-panel');
+  const visible = settingsEditable();
+
+  panel.hidden = !visible;
+
+  if (!visible) {
+    return;
+  }
+
+  const settings = currentSettings();
+  const editable = state.hostId === me;
+
+  $('setting-timer').value = String(settings.roundSeconds);
+  $('setting-categories').value = String(settings.categoryCount);
+  $('setting-strict').checked = Boolean(
+    settings.strictFirstLetter
+  );
+
+  [
+    'setting-timer',
+    'setting-categories',
+    'setting-strict'
+  ].forEach(id => {
+    $(id).disabled = !editable;
+  });
+
+  $('settings-help').textContent = editable
+    ? 'Host settings apply to the next round.'
+    : 'Only the host can edit these settings.';
 }
 
 // RANDOM MYSTERY TILES
@@ -314,6 +485,11 @@ function renderPlaying() {
   );
 
   const submitted = Boolean(mine?.submitted);
+  const strictLetter =
+    currentSettings().strictFirstLetter;
+  const placeholder = strictLetter
+    ? `Starts with ${state.letter}`
+    : 'Any answer';
 
   $('fields').innerHTML = state.categories.map(
     (category, index) => `
@@ -327,7 +503,7 @@ function renderPlaying() {
           data-category="${escapeHtml(category)}"
           maxlength="70"
           autocomplete="off"
-          placeholder="Starts with ${escapeHtml(state.letter)}"
+          placeholder="${escapeHtml(placeholder)}"
           value="${escapeHtml(currentDraft[category] || '')}"
           ${submitted ? 'disabled' : ''}
         >
@@ -350,6 +526,139 @@ function renderPlaying() {
     updateTimer,
     250
   );
+}
+
+const challengeStatusLabels = {
+  pending: 'Flag pending',
+  disputed: 'Disputed',
+  accepted: 'Flag accepted',
+  withdrawn: 'Flag withdrawn'
+};
+
+function challengeLabel(status) {
+  return challengeStatusLabels[status] || 'Flagged';
+}
+
+function renderRoundPreview() {
+  const results = state.results || [];
+
+  $('round-preview').innerHTML = state.players.map(player => {
+    const total = results.reduce(
+      (sum, row) => sum + (row.points[player.id] || 0),
+      0
+    );
+
+    const finalScore = state.finalized
+      ? player.score
+      : player.score + total;
+
+    return `
+      <div class="round-total">
+        <span>${escapeHtml(player.name)}</span>
+        <strong>+${total}</strong>
+        <span>
+          ${state.finalized ? 'Score' : 'After confirm'}
+          ${finalScore}
+        </span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderHistory() {
+  const history = state.history || [];
+  const card = $('history-card');
+
+  card.hidden = !history.length;
+
+  if (!history.length) {
+    $('history-list').innerHTML = '';
+    return;
+  }
+
+  $('history-list').innerHTML = history
+    .slice(-3)
+    .reverse()
+    .map((entry, index) => {
+      const players = entry.players || state.players;
+      const playerById = Object.fromEntries(
+        players.map(player => [player.id, player])
+      );
+
+      const flags = (entry.rows || []).reduce(
+        (total, row) =>
+          total + Object.keys(row.challenges || {}).length,
+        0
+      );
+
+      const winnerIds = entry.winnerIds || [];
+      const winnerText = winnerIds.length === players.length
+        ? 'Tie'
+        : `${winnerIds.map(id =>
+            playerById[id]?.name || 'Player'
+          ).join(' and ')} won`;
+
+      const scoreText = players.map(player =>
+        `${escapeHtml(player.name)} +${entry.totals?.[player.id] || 0}`
+      ).join(' / ');
+
+      const rows = (entry.rows || []).map(row => {
+        const answerLines = players.map(player => {
+          const answer = row.answers?.[player.id] || '-';
+          const points = row.points?.[player.id] || 0;
+
+          return `
+            ${escapeHtml(player.name)}:
+            ${escapeHtml(answer)}
+            (+${points})
+          `;
+        }).join('<br>');
+
+        const challengeLines = Object.entries(
+          row.challenges || {}
+        ).map(([targetId, challenge]) => {
+          const challenger =
+            playerById[challenge.by]?.name || 'Player';
+          const target =
+            playerById[targetId]?.name || 'Player';
+
+          return `
+            ${escapeHtml(challenger)}
+            -&gt;
+            ${escapeHtml(target)}:
+            ${escapeHtml(challengeLabel(challenge.status))}
+          `;
+        }).join('<br>');
+
+        return `
+          <div class="history-line">
+            <strong>${escapeHtml(row.category)}</strong><br>
+            ${answerLines}
+            ${challengeLines ? `<br>${challengeLines}` : ''}
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <details class="history-entry" ${index === 0 ? 'open' : ''}>
+          <summary>
+            Round ${entry.round} - ${escapeHtml(winnerText)}
+          </summary>
+
+          <div class="history-meta">
+            Letter ${escapeHtml(entry.letter)}
+            &middot;
+            ${flags} flag${flags === 1 ? '' : 's'}
+            &middot;
+            ${scoreText}
+          </div>
+
+          <div class="history-lines">
+            ${rows}
+          </div>
+        </details>
+      `;
+    }).join('');
 }
 
 // REVIEW SCREEN
@@ -389,6 +698,8 @@ function renderResults() {
       'Check each answer and flag anything incorrect.';
   }
 
+  renderRoundPreview();
+
   $('result-rows').innerHTML = (
     state.results || []
   ).map(row => {
@@ -402,12 +713,44 @@ function renderResults() {
 
       const challenge =
         row.challenges?.[player.id];
+      const challengeStatus =
+        challengeStatusLabels[challenge?.status]
+          ? challenge.status
+          : null;
 
       const points =
         row.points[player.id];
 
       const category =
         escapeHtml(row.category);
+
+      const comments = [];
+
+      if (challenge?.reason) {
+        comments.push(`
+          <p>
+            <strong>Flag reason</strong>
+            ${escapeHtml(challenge.reason)}
+          </p>
+        `);
+      }
+
+      if (challenge?.response) {
+        comments.push(`
+          <p>
+            <strong>Dispute explanation</strong>
+            ${escapeHtml(challenge.response)}
+          </p>
+        `);
+      }
+
+      const commentHtml = comments.length
+        ? `
+          <div class="review-comments">
+            ${comments.join('')}
+          </div>
+        `
+        : '';
 
       let action = '';
 
@@ -420,7 +763,7 @@ function renderResults() {
                 type="button"
                 data-action="accept"
                 data-category="${category}">
-                Accept flag · 0 pts
+                Accept flag &middot; 0 pts
               </button>
 
               <button
@@ -434,7 +777,7 @@ function renderResults() {
         } else {
           action = `
             <small class="review-note">
-              Flag sent · waiting for response
+              Flag sent &middot; waiting for response
             </small>
           `;
         }
@@ -470,7 +813,7 @@ function renderResults() {
                 data-action="withdraw"
                 data-category="${category}"
                 data-target="${escapeHtml(player.id)}">
-                Withdraw flag · keep points
+                Withdraw flag &middot; keep points
               </button>
             </div>
           `;
@@ -509,19 +852,28 @@ function renderResults() {
             class="flag-button"
             data-action="flag"
             data-category="${category}"
-            data-target="${escapeHtml(player.id)}">
-            ⚑ Flag answer
+            data-target="${escapeHtml(player.id)}"
+            data-answer="${escapeHtml(row.answers[player.id] || '')}">
+            Flag answer
           </button>
         `;
       }
 
       return `
-        <div class="review-answer">
+        <div class="review-answer ${challengeStatus ? `has-${challengeStatus}` : ''}">
 
           <span class="review-name">
             ${escapeHtml(player.name)}
             ${mine ? '(you)' : ''}
           </span>
+
+          ${challengeStatus
+            ? `
+              <span class="challenge-badge ${challengeStatus}">
+                ${escapeHtml(challengeLabel(challengeStatus))}
+              </span>
+            `
+            : ''}
 
           <span class="review-value">
             ${escapeHtml(
@@ -530,6 +882,8 @@ function renderResults() {
           </span>
 
           <b>+${points} pts</b>
+
+          ${commentHtml}
 
           ${action}
 
@@ -585,7 +939,7 @@ function renderResults() {
 // REVIEW ACTIONS
 $('result-rows').addEventListener(
   'click',
-  event => {
+  async event => {
     const button = event.target.closest(
       'button[data-action]'
     );
@@ -606,20 +960,72 @@ $('result-rows').addEventListener(
       button.dataset.action;
 
     if (action === 'flag') {
+      const answer =
+        button.dataset.answer || 'this answer';
+
+      const reason = await requestReviewComment({
+        title: 'Flag answer',
+        prompt: `Why are you flagging "${answer}"?`,
+        submitLabel: 'Send flag',
+        emptyMessage: 'Please add a reason for the flag.'
+      });
+
+      if (reason === null) {
+        return;
+      }
+
+      if (
+        !state ||
+        state.phase !== 'results' ||
+        state.finalized
+      ) {
+        return;
+      }
+
       socket.emit('review:flag', {
         category,
-        targetId: button.dataset.target
+        targetId: button.dataset.target,
+        reason
       });
+
+      return;
     }
 
     if (
       action === 'accept' ||
       action === 'dispute'
     ) {
-      socket.emit('review:respond', {
+      const payload = {
         category,
         decision: action
-      });
+      };
+
+      if (action === 'dispute') {
+        const response = await requestReviewComment({
+          title: 'Dispute flag',
+          prompt: 'Explain why this answer should count.',
+          submitLabel: 'Send dispute',
+          emptyMessage: 'Please add an explanation before disputing.'
+        });
+
+        if (response === null) {
+          return;
+        }
+
+        if (
+          !state ||
+          state.phase !== 'results' ||
+          state.finalized
+        ) {
+          return;
+        }
+
+        payload.response = response;
+      }
+
+      socket.emit('review:respond', payload);
+
+      return;
     }
 
     if (
@@ -633,6 +1039,8 @@ $('result-rows').addEventListener(
           : button.dataset.target,
         decision: action
       });
+
+      return;
     }
   }
 );
@@ -664,6 +1072,8 @@ function render() {
     state.code;
 
   renderScores();
+  renderSettings();
+  renderHistory();
 
   let screen = state.phase;
 

@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#fff7f4">
-  <title>LetterUs ♡</title>
+  <title>tshego</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -24,10 +24,10 @@
         autocomplete="nickname">
 
       <button id="create" class="primary" type="button">
-        Create our room ♡
+        Create our room 
       </button>
 
-      <div class="separator">or join your person</div>
+      <div class="separator">or join your babyyyyyyyyy</div>
 
       <label for="code">Room code</label>
       <input id="code" maxlength="6"
@@ -37,6 +37,40 @@
       <button id="join" class="secondary" type="button">
         Join room
       </button>
+    </section>
+
+    <section class="card love-space" aria-labelledby="love-heading">
+      <span class="eyebrow">OUR FOREVER SPACE</span>
+      <h2 id="love-heading">A Little Love</h2>
+      <p>Letters and hugs that stay, even when the game room changes.</p>
+      <p id="love-feedback" role="status" aria-live="polite"></p>
+      <form id="love-auth-form" class="love-auth" autocomplete="on">
+        <div id="love-auth">
+          <label for="love-username">Username</label><input id="love-username" autocomplete="username" maxlength="24" required>
+          <label for="love-password">Password</label><input id="love-password" type="password" autocomplete="current-password" minlength="10" required>
+          <label class="love-check"><input type="checkbox" id="love-register"> Create a new account</label>
+          <div id="love-display-wrap" hidden><label for="love-display">Your nickname</label><input id="love-display" maxlength="40"></div>
+          <button type="submit" class="primary">Sign in / Create account</button>
+        </div>
+      </form>
+      <div id="love-account" hidden>
+        <h3 id="love-greeting"></h3><p id="love-partner"></p>
+        <div id="love-pair" hidden>
+          <p>Your personal invitation code: <strong id="love-invite"></strong></p>
+          <label for="love-pair-code">Your person's invitation code</label>
+          <input id="love-pair-code" maxlength="12" placeholder="Paste their code">
+          <button id="love-pair-button" class="secondary" type="button">Connect our hearts </button>
+        </div>
+        <div id="love-actions" hidden>
+          <label for="love-note-text">Leave a Love Note</label>
+          <textarea id="love-note-text" maxlength="1000" rows="4" placeholder="A little something for you..."></textarea>
+          <button id="love-send-note" class="primary" type="button">Send Love Note</button>
+          <button id="love-send-hug" class="secondary" type="button">Send a BIG Hug</button>
+          <h3>Our Little Mailbox <span id="love-unread"></span></h3>
+          <div id="love-messages" class="love-messages"></div>
+        </div>
+        <button id="love-logout" class="small secondary" type="button">Sign out of our space</button>
+      </div>
     </section>
 
     <section id="game" hidden>
@@ -52,8 +86,41 @@
 
       <div class="scores" id="scores"></div>
 
+      <section id="settings-panel" class="card settings-panel" hidden>
+        <span class="eyebrow">ROOM SETTINGS</span>
+
+        <div class="settings-grid">
+          <label for="setting-timer">
+            Time
+            <select id="setting-timer">
+              <option value="60">1:00</option>
+              <option value="120">2:00</option>
+              <option value="180">3:00</option>
+              <option value="240">4:00</option>
+              <option value="300">5:00</option>
+            </select>
+          </label>
+
+          <label for="setting-categories">
+            Categories
+            <select id="setting-categories">
+              <option value="8">8</option>
+              <option value="12">12</option>
+              <option value="18">18</option>
+            </select>
+          </label>
+
+          <label class="toggle-row" for="setting-strict">
+            <input id="setting-strict" type="checkbox">
+            <span>Strict first letter</span>
+          </label>
+        </div>
+
+        <p id="settings-help" class="helper"></p>
+      </section>
+
       <section id="waiting" class="card" hidden>
-        <h2>Waiting for your person...</h2>
+        <h2>Waiting for your babyyyyy</h2>
         <p>Share your room link so she can join you here.</p>
       </section>
 
@@ -75,7 +142,7 @@
         <form id="answers-form">
           <div id="fields" class="fields"></div>
           <button id="submit" class="primary" type="submit">
-            Finish early ♡
+            Finish early 
           </button>
         </form>
 
@@ -95,6 +162,8 @@
         <p id="review-status" class="helper"
           role="status" aria-live="polite"></p>
 
+        <div id="round-preview" class="round-preview"></div>
+
         <div id="result-rows" class="result-rows"></div>
 
         <button id="confirm-review" class="secondary"
@@ -109,11 +178,91 @@
 
         <p id="next-help" class="helper"></p>
       </section>
+
+      <section id="history-card" class="card history-card" hidden>
+        <span class="eyebrow">ROUND HISTORY</span>
+        <div id="history-list" class="history-list"></div>
+      </section>
     </section>
 
   </main>
 
+  <div id="review-modal" class="modal-backdrop" hidden>
+    <form
+      id="review-modal-form"
+      class="modal-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="review-modal-title"
+      aria-describedby="review-modal-prompt">
+      <h2 id="review-modal-title">Add a comment</h2>
+      <p id="review-modal-prompt"></p>
+
+      <textarea
+        id="review-modal-input"
+        maxlength="500"
+        rows="5"></textarea>
+
+      <div class="modal-footer">
+        <span id="review-modal-count" class="helper">0/500</span>
+
+        <button
+          id="review-modal-cancel"
+          class="secondary"
+          type="button">
+          Cancel
+        </button>
+
+        <button
+          id="review-modal-submit"
+          class="primary"
+          type="submit">
+          Send
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div id="love-letter" class="love-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="love-letter-title">
+    <div class="love-paper"><button id="love-letter-close" type="button" class="small secondary">Close ×</button><h2 id="love-letter-title"></h2><p id="love-letter-body"></p></div>
+  </div>
+ 
+<div id="love-hug-toast" class="love-hug-toast" hidden>
+  <div class="hug-animation">
+    <img
+      src="/img/hug.png"
+      alt="A cute duck opening its arms for a hug"
+      class="hug-image"
+    >
+  </div>
+
+  <h2>Incoming Hug! ♡</h2>
+
+  <p id="love-hug-text"></p>
+
+  <p class="hug-message">
+    A little duck delivering a whole lot of love.
+  </p>
+
+  <button
+    id="love-hug-back"
+    type="button"
+    class="primary"
+  >
+    Hug Back ♡
+  </button>
+
+  <button
+    id="love-hug-dismiss"
+    type="button"
+    class="small secondary"
+  >
+    Keep this hug ♡
+  </button>
+</div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="/script.js"></script>
+  <script src="/love.js"></script>
 </body>
 </html>
