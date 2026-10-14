@@ -740,3 +740,6 @@ footer {
     animation: none;
   }
 }
+[hidden] {
+  display: none !important;
+}
